@@ -29,13 +29,8 @@
  float payload = 0.0;
   
  void setup() {
-  
    Serial.begin(115200);
-   while (!Serial) {
-     // some boards need to wait to ensure access to serial over USB
-   }
-  
-   // initialize the transceiver on the SPI bus
+   
    if (!radio.begin()) {
      Serial.println(F("radio hardware is not responding!!"));
      while (1) {} // hold in infinite loop

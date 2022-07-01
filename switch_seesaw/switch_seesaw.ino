@@ -12,10 +12,10 @@ double y;
 double z;
 uint32_t color;
 
-int change = 30;
+int change = 15;
 
 
-#define PIN 6
+#define PIN 5
 
 // Parameter 1 = aantal LEDs in de strip
 // Parameter 2 = pin nummer
@@ -24,7 +24,7 @@ int change = 30;
 //   NEO_KHZ400  400 KHz (klassieke 'v1' (niet v2) FLORA pixels, WS2811 drivers)
 //   NEO_GRB     RGB LED volgens GRB bitstream (de meeste NeoPixel produkten)
 //   NEO_RGB     RGB LED volgens RGB bitstream (v1 FLORA pixels, niet v2)
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(60, PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(30, PIN, NEO_GRB + NEO_KHZ800);
 
 
 void setup() {
@@ -58,7 +58,7 @@ void loop() {
     other_color = strip.Color(0, 255, 0);
   }
 
-  if (y > 2000 and change < 60) {
+  if (y > 2000 and change < 30) {
     strip.setPixelColor(change, other_color);
     strip.show();
     change += 1;
