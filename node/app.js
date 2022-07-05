@@ -23,9 +23,8 @@ lineReader.on('line', function (line) {
         console.log(parts);
         if (parts[1] == '1') {
             player.play('positive.wav', () => {});
-        }else {
-            
-            player.play('negative.wav', () => {});
+        }else if (parts[1] == '0') {
+           // player.play('negative.wav', () => {});
         }
     }
 });
