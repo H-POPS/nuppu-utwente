@@ -6,24 +6,28 @@
 RF24 radio(9, 10);               // nRF24L01 (CE,CSN)
 RF24Network network(radio);      // Include the radio in the network
 const uint16_t this_node = 00;   // Address of this node in Octal format ( 04,031, etc)
-int amountOfTools = 3;
+int amountOfTools = 4;
 int toolColors[] = { -1, -1, -1, -1};
 int winning;
 int startingMillis;
 
 bool magnets[] = {true, true, true, true};
 bool activeColors[] = {true, true, true, true};
+bool winningColors[] = {true, true, true, true};
 
 
 // Rood, Groed, Blauw, Geel
 int colorPins[] = {6, 5, 4, 3};
 int colorOutput[] = {A0, A2, A3, A1};
 
-bool gameActive = false;
-int startedMillis;
-int lastUpdateSend;
-int gameDuration = 1000 * 10;
+int gameState = 0; // 0 = Idle, 1 = Playing, 2 = Ended
+unsigned long startedMillis;
+unsigned long lastUpdateSend;
+bool tickingStarted = false;
+unsigned long gameDuration = 120000 ;
+unsigned long gameEndedMillis;
 
+int startButtonPin = 7;
 
 void setup() {
   Serial.begin(115200);
@@ -31,6 +35,7 @@ void setup() {
   radio.begin();
   network.begin(95, this_node);  //(channel, node address)
 
+  pinMode(startButtonPin, INPUT);
   for (int i = 0; i < 4; i++) {
     if (colorPins[i] > 0) {
       pinMode(colorPins[i], INPUT);    // sets the digital pin 7 as input
@@ -63,12 +68,17 @@ void loop() {
     int i = Serial.read() - '0';
     if (i == 5) {
       startGame();
+      return;
     }
   }
 
-  // Update colors when game is not active
-  if (!gameActive) {
+  if(gameState == 0 and digitalRead(startButtonPin) == HIGH) {
+    startGame();
+    return;
+  }
 
+  // Update colors when game is not active
+  if (gameState == 0) {
     // send data only when you receive data:
     if (Serial.available() > 0) {
       // read the incoming byte:
@@ -88,10 +98,35 @@ void loop() {
       }
     }
   }
-
-  if (gameActive) {
+  else if (gameState == 1) {
+    if (gameDuration - (millis() - startedMillis) < 17000 and !tickingStarted) {
+      tickingStarted = true;
+      Serial.println("Last 17 seconds");
+    }
     if (millis() - startedMillis > gameDuration) {
       endGame();
+    }
+  }
+  else if (gameState == 2) {
+    bool isDone = false;
+    for (int i = 0; i < 4; i++) {
+      if (colorPins[i] > 0 ) {
+        bool active = !digitalRead(colorPins[i]);   // read the input pin
+        if (magnets[i] != active) {
+          isDone = true;
+        }
+      }
+    }
+    if (millis() - gameEndedMillis > 60000 or isDone) {
+      Serial.println("Game state to 0");
+      gameState = 0;
+      for (int i = 0; i < 4; i++) {
+        if (colorPins[i] > 0) {
+          bool active = !digitalRead(colorPins[i]);   // read the input pin
+          setColor(i, active);
+          magnets[i] = active;
+        }
+      }
     }
   }
 }
@@ -123,6 +158,19 @@ void handleColorChanged(byte data,  RF24NetworkHeader header) {
   Serial.print(toolIndex);
   Serial.print(": ");
   Serial.println(colorIndex);
+
+
+  getWinningColors();
+
+  if (gameState == 1) {
+    for (int i = 0; i < 4; i++) {
+      if (winningColors[i] == true) {
+        analogWrite(colorOutput[i], 255);
+      } else {
+        analogWrite(colorOutput[i], 0);
+      }
+    }
+  }
 }
 
 void sendColors() {
@@ -136,11 +184,13 @@ void sendColors() {
   Serial.println(colorData);
 
 
-  for (int i = 1; i < amountOfTools; i++) {
-    RF24NetworkHeader header2(i);     // (Address where the data is going)
+  for (int i = 0; i < amountOfTools; i++) {
+    uint16_t adress = i + 1;
+    RF24NetworkHeader header2(adress);     // (Address where the data is going)
     bool ok = network.write(header2, &colorData, sizeof(colorData)); // Send the data
     if (!ok) {
-      Serial.println("Fail");
+      Serial.print("Failed sending colors to: ");
+      Serial.println(adress);
     }
   }
 }
@@ -149,8 +199,8 @@ void sendColors() {
 
 void sendStartOfGame() {
   byte data = 0b00000010;
-  for (int i = 1; i < amountOfTools; i++) {
-    RF24NetworkHeader header2(i);     // (Address where the data is going)
+  for (int i = 0; i < amountOfTools; i++) {
+    RF24NetworkHeader header2(i + 1);     // (Address where the data is going)
     bool ok = network.write(header2, &data, sizeof(data)); // Send the data
     if (!ok) {
       Serial.println("Fail");
@@ -160,8 +210,8 @@ void sendStartOfGame() {
 
 void sendEndOfGame() {
   byte data = 0b00000011;
-  for (int i = 1; i < amountOfTools; i++) {
-    RF24NetworkHeader header2(i);     // (Address where the data is going)
+  for (int i = 0; i < amountOfTools; i++) {
+    RF24NetworkHeader header2(i + 1);     // (Address where the data is going)
     bool ok = network.write(header2, &data, sizeof(data)); // Send the data
     if (!ok) {
       Serial.println("Fail");
@@ -170,24 +220,80 @@ void sendEndOfGame() {
 }
 
 void startGame() {
-  Serial.print("Count down" );
-   for (int i = 0; i < 4; i++) {
+  Serial.println("Count down" );
+  for (int i = 0; i < 4; i++) {
     if (colorOutput[i] > 0) {
       analogWrite(colorOutput[i], 0);
     }
   }
-  delay(900)
-      analogWrite(colorOutput[], 0);
-  
+  delay(700);
+  analogWrite(colorOutput[2], 255);
+  delay(700);
+  analogWrite(colorOutput[1], 255);
+  delay(700);
+  analogWrite(colorOutput[3], 255);
+  delay(700);
+  analogWrite(colorOutput[0], 255);
+
+
+  for (int j = 0; j < 4; j++) {
+    for (int i = 0; i < 4; i++) {
+      if (colorOutput[i] > 0) {
+        analogWrite(colorOutput[i], 0);
+        delay(40);
+        analogWrite(colorOutput[i], 255);
+      }
+    }
+  }
+
   startedMillis = millis();
-  gameActive = true;
+  Serial.print("Started: ");
+  Serial.println(startedMillis);
+
+  gameState = 1;
   sendStartOfGame();
+    for (int i = 0; i < amountOfTools; i++) {
+toolColors[i] = -1;
+    }
   Serial.print("Game started:" );
   Serial.println(gameDuration / 1000);
 }
 
 void endGame() {
-  gameActive = false;
+  gameState = 2;
   sendEndOfGame();
-  Serial.println("Game ended");
+  startedMillis = 0;
+  Serial.println("End game");
+  tickingStarted = false;
+  gameEndedMillis = millis();
+}
+
+void getWinningColors() {
+  int maxCount = 0;
+
+  for (int c = 0; c < 4; c++) {
+    winningColors[c] = false;
+    int count = 0;
+    for (int i = 0; i < amountOfTools; i++) {
+      if (toolColors[i] == c) {
+        count += 1;
+      }
+    }
+    if (count > maxCount) {
+      maxCount = count;
+    }
+  }
+
+  for (int c = 0; c < 4; c++) {
+    int count = 0;
+    for (int i = 0; i < amountOfTools; i++) {
+      if (toolColors[i] == c) {
+        count += 1;
+      }
+    }
+    if (count == maxCount) {
+      winningColors[c] = true;
+    }
+  }
+  return winningColors;
 }

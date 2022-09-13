@@ -1,7 +1,7 @@
-#define SLIDE
+//#define SLIDE
 //#define SEESAW
 //#define SWING
-//#define CAROUSEL
+#define CAROUSEL
 
 #include <RF24.h>
 #include <RF24Network.h>
@@ -10,6 +10,8 @@
 
 #include <Adafruit_NeoPixel.h>
 
+unsigned long stoppedMillis;
+int freezeTime = 5000;
 #define PIN 5
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(30, PIN, NEO_GRB + NEO_KHZ800);
 
@@ -24,6 +26,8 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(30, PIN, NEO_GRB + NEO_KHZ800);
 long duration; // variable for the duration of sound wave travel
 int distance;  // variable for the distance measurement
 unsigned long lastChangeMilis;
+int charge = 0;
+
 #endif
 #if defined SEESAW or defined SWING or defined CAROUSEL
 #include<Wire.h>
@@ -49,7 +53,7 @@ RF24 radio(9, 10);          // nRF24L01 (CE,CSN)
 RF24Network network(radio); // Include the radio in the network
 
 // Address of this node in Octal format ( 04,031, etc)
-#ifdef SLIDE
+#if defined SLIDE
 const uint16_t this_node = 01;
 #elif defined SEESAW
 const uint16_t this_node = 02;
@@ -58,21 +62,25 @@ const uint16_t this_node = 03;
 #elif defined CAROUSEL
 const uint16_t this_node = 04;
 #endif
+
 int activeColor = 0;
 int nextColor = 0;
 bool activeColors[] = {true, true, true, true};
 int colors[][3] = {
-  {255, 0, 0},  // Rood
-  {0, 255, 0},  // Groen
-  {0, 0, 255},  // Blauw
-  {255, 255, 0} // Geel
+  {150, 0, 0},  // Rood
+  {0, 150, 0},  // Groen
+  {0, 0, 150},  // Blauw
+  {150, 150, 0}, // Geel
+  {150, 150, 150} // Wit
 };
+
+
+unsigned long lastUpdateMillis;
 
 void setup()
 {
 
 #ifdef SLIDE
-
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an OUTPUT
   pinMode(echoPin, INPUT); // Sets the echoPin as an INPUT
 #endif
@@ -89,6 +97,7 @@ void setup()
   /* Initialise the sensor */
   if (!accel.begin())
   {
+  Serial.begin(115200);
     /* There was a problem detecting the ADXL345 ... check your connections */
     Serial.println("Ooops, no ADXL345 detected ... Check your wiring!");
     while (1);
@@ -105,6 +114,11 @@ void setup()
   strip.begin();
   strip.show();
 
+  uint32_t stripColor = strip.Color(colors[activeColor][0], colors[activeColor][1], colors[activeColor][2]);
+
+  strip.fill(stripColor);
+  strip.show();
+  
   Serial.println("Setup complete");
 
 
@@ -121,38 +135,56 @@ void loop()
   { // Is there any incoming data?
     RF24NetworkHeader header;
     byte incomingData;
+    Serial.print("Data recieved: ");
+    Serial.println(incomingData);
     network.read(header, &incomingData, sizeof(incomingData)); // Read the incoming data
     handleIncommingData(incomingData);
+
   }
-
-#ifdef SLIDE
-  // Clears the trigPin condition
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  // Sets the trigPin HIGH (ACTIVE) for 10 microseconds
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  // Reads the echoPin, returns the sound wave travel time in microseconds
-  duration = pulseIn(echoPin, HIGH);
-  // Calculating the distance
-  distance = duration * 0.034 / 2; // Speed of sound wave divided by 2 (go and back)
-
-  // Displays the distance on the Serial Monitor
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
-
-  if (distance > 0 and distance < 30 and (millis() - lastChangeMilis) > 1500)
-  {
-    switchColor();
-    lastChangeMilis = millis(); 
-  }
-  delay(200);
-#endif
 
   int next = getNextColor();
   uint32_t other_color  = strip.Color(colors[next][0], colors[next][1], colors[next][2]);
+#ifdef SLIDE
+  if (millis() - lastUpdateMillis > 100) {
+    lastUpdateMillis = millis();
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    // Sets the trigPin HIGH (ACTIVE) for 10 microseconds
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    // Reads the echoPin, returns the sound wave travel time in microseconds
+    duration = pulseIn(echoPin, HIGH);
+    // Calculating the distance
+    distance = duration * 0.034 / 2; // Speed of sound wave divided by 2 (go and back)
+
+    // Displays the distance on the Serial Monitor
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+
+    if (distance > 0 and distance < 30 and (millis() - lastChangeMilis) > 1500)
+    {
+      strip.setPixelColor(charge, 0-);
+      charge = 1;
+      lastChangeMilis = millis();
+    }
+
+  }
+
+    if (charge > 0 and millis() - lastChargeMillis > 15) {
+      lastChargeMillis = millis();
+      strip.setPixelColor(charge, other_color);
+      strip.show();
+      charge += 1;
+      if (charge == 30) {
+        switchColor();
+        charge = 0;
+      }
+    }
+  //delay(200);
+#endif
+
 #if defined SEESAW or defined SWING
   Wire.beginTransmission(MPU_addr);
   Wire.write(0x3B);
@@ -220,17 +252,16 @@ void loop()
 
 #if defined CAROUSEL
 
-  /* Get a new sensor event */
-  sensors_event_t event;
-  accel.getEvent(&event);
-  /* Display the results (acceleration is measured in m/s^2) */
-  Serial.print("X: "); Serial.print(event.acceleration.x); Serial.print(" ");
-  Serial.print("Y: "); Serial.print(event.acceleration.y); Serial.print(" ");
-  Serial.print("Z: "); Serial.print(event.acceleration.z); Serial.print(" "); Serial.println("m/s^2 ");
+  if (millis() - lastUpdateMillis > 100) {
+    lastUpdateMillis = millis();
+    /* Get a new sensor event */
+    sensors_event_t event;
+    accel.getEvent(&event);
+    Serial.println(event.acceleration.x);
+    if (event.acceleration.x > 3 or event.acceleration.x < -3) {
 
-  if (event.acceleration.x > 5) {
-
-    lastDirChangeMillis = millis();
+      lastDirChangeMillis = millis();
+    }
   }
 
 #endif
@@ -238,9 +269,13 @@ void loop()
 
 
 #if defined SWING or defined CAROUSEL
-  if (millis() - lastDirChangeMillis < 3000) {
 
-    if (millis() - lastChargeMillis > 400) {
+  if (millis() - stoppedMillis < freezeTime) {
+    return;
+  }
+  if (millis() - lastDirChangeMillis < 1500) {
+
+    if (millis() - lastChargeMillis > 100) {
 
       lastChargeMillis = millis();
       strip.setPixelColor(charge, other_color);
@@ -253,7 +288,7 @@ void loop()
     }
   } else {
 
-    if (charge > 0 and millis() - lastChargeMillis > 400) {
+    if (charge > 0 and millis() - lastChargeMillis > 50) {
       charge -= 1;
       lastChargeMillis = millis();
       uint32_t stripColor = strip.Color(colors[activeColor][0], colors[activeColor][1], colors[activeColor][2]);
@@ -287,6 +322,10 @@ int getNextColor()
 
 void switchColor()
 {
+  if (millis() - stoppedMillis < freezeTime) {
+    return;
+  }
+
   activeColor = getNextColor();
 
   byte data = activeColor << 2;
@@ -295,6 +334,12 @@ void switchColor()
 
   RF24NetworkHeader header(00);                         // (Address where the data is going)
   bool ok = network.write(header, &data, sizeof(data)); // Send the data
+
+  if (!ok) {
+    Serial.print("Failed sending color switch to: ");
+    Serial.println(00);
+  }
+
   uint32_t stripColor = strip.Color(colors[activeColor][0], colors[activeColor][1], colors[activeColor][2]);
 
   strip.fill(stripColor);
@@ -309,6 +354,19 @@ void handleIncommingData(byte data)
   if ((data & eventMask) == 0b00000001)
   { // Change color
     handleColorChange(data);
+  }
+  if ((data & eventMask) == 0b00000010)
+  { // Start of game
+    Serial.println("Game started");
+    nextColor = 4;
+    lastUpdateMillis = 0;
+    switchColor();
+  }
+  if ((data & eventMask) == 0b00000011)
+  { // Start of game
+    Serial.println("Game stopped");
+    stoppedMillis = millis();
+    uint32_t stripColor = strip.Color(colors[activeColor][0], colors[activeColor][1], colors[activeColor][2]);
   }
 }
 
